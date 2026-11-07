@@ -118,12 +118,34 @@ def check_match(light1,light2):
         return 0
     return 1
 def sort_points(points):
-    x_max=max(points[:,0])
-    x_min=min(points[:,0])
-    y_max=max(points[:,1])
-    y_min=min(points[:,1])
+    # x_max=max(points[:,0])
+    # x_min=min(points[:,0])
+    # y_max=max(points[:,1])
+    # y_min=min(points[:,1])
+    # return np.array([
+    #     (x_min,y_min),(x_min,y_max),(x_max,y_min),(x_max,y_max)
+    # ])
+    order_x = np.argsort(points[:, 0])
+    order_y = np.argsort(points[:, 1])
+    top=order_y[:2]
+    bottom=order_y[2:]
+    if points[top[0]][0]<points[top[1]][0]:
+        left_top=top[0]
+        right_top=top[1]
+    else:
+        left_top=top[1]
+        right_top=top[0]
+    if points[bottom[0]][0]<points[bottom[1]][0]:
+        left_bottom=bottom[0]
+        right_bottom=bottom[1]
+    else:
+        left_bottom=bottom[1]
+        right_bottom=bottom[0]
     return np.array([
-        (x_min,y_min),(x_min,y_max),(x_max,y_min),(x_max,y_max)
+        points[left_top],
+        points[left_bottom],
+        points[right_top],
+        points[right_bottom]
     ])
 def draw_aim(light1,light2,result):
     points1 = sort_points(np.int32(cv.boxPoints(light1)))
