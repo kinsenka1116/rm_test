@@ -187,8 +187,8 @@ def Dispose_video(file_path="./input/video.avi"):
         result=img.copy()
         Dispose_image(img,result)
         out.write(result)
-        # cv.imshow("img",result)
-        # cv.waitKey(1)
+        cv.imshow("img",result)
+        cv.waitKey(1)
     out.release()
     cap.release()
 def main():
