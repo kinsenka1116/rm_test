@@ -1,24 +1,9 @@
 import cv2 as cv
 import os
 import sys
+# from ultralytics import YOLO
 import numpy as np
 import argparse
-
-def Input_image(image_path=None):
-    if image_path is None:
-        parser = argparse.ArgumentParser()
-        parser.add_argument("--image_path", type=str, default="./images/outpost_frame.png")
-        image_path=parser.parse_args().image_path
-    img=cv.imread(image_path)
-    if img is None:
-        print("error")
-        sys.exit(0)
-    return img
-def Out_image(img,filename):
-    os.makedirs("outputs", exist_ok=True)
-    if not cv.imwrite(f"outputs/{filename}.png",img):
-        print("error")
-        sys.exit(0)
 def Creat_mask_by_inRange(hsv,color):
     if color=="orange":
         lower = np.array([10, 76, 204])
@@ -62,14 +47,10 @@ def Open_img(img,kernel_size=3):
     cv.MORPH_OPEN,
     kernel
     )
-def Get_mask(img,color):
+def Get_mask(img):
     Blurred_img=Blur_img(img,way="Gaussian")
     hsv = cv.cvtColor(Blurred_img, cv.COLOR_BGR2HSV)
-    if color=="orange":
-        mask=cv.bitwise_or(Creat_mask_by_inRange(hsv,"red"),Creat_mask_by_inRange(hsv,"orange"))
-    else:
-        mask=Creat_mask_by_inRange(hsv,color)
-    Out_image(Creat_mask_by_inRange(hsv,"blue"),"mask_blue")
+    mask=cv.bitwise_or(Creat_mask_by_inRange(hsv,"red"),Creat_mask_by_inRange(hsv,"orange"))
     mask_closed=Close_img(mask,5)
     # mask_open=Open_img(mask_closed,1)
     return mask_closed
@@ -85,7 +66,7 @@ def check_light(rect):
     if float(height)/float(width)<2:
         return 0
     return 1
-def find_light(mask,result_light):
+def find_light(mask):
     contours, hierarchy = cv.findContours(
     mask,
     cv.RETR_EXTERNAL,
@@ -96,9 +77,7 @@ def find_light(mask,result_light):
         rect = cv.minAreaRect(contour)
         if not check_light(rect):
             continue
-        points = np.intp(cv.boxPoints(rect))
         lights.append(rect)
-        cv.drawContours(result_light, [points], 0, (0, 255, 0), 2)
     return lights
 def get_angle(rect):
     (cx, cy), (w, h), angle = rect
@@ -128,13 +107,6 @@ def check_match(light1,light2):
         return 0
     return 1
 def sort_points(points):
-    # x_max=max(points[:,0])
-    # x_min=min(points[:,0])
-    # y_max=max(points[:,1])
-    # y_min=min(points[:,1])
-    # return np.array([
-    #     (x_min,y_min),(x_min,y_max),(x_max,y_min),(x_max,y_max)
-    # ])
     order_x = np.argsort(points[:, 0])
     order_y = np.argsort(points[:, 1])
     top=order_y[:2]
@@ -157,80 +129,55 @@ def sort_points(points):
         points[right_top],
         points[right_bottom]
     ])
-def print_aim(aim_points,color):
-    M = cv.moments(aim_points)
-    cx = M["m10"] / M["m00"]
-    cy = M["m01"] / M["m00"]
-    with open("./outputs/information.txt", "w", encoding="utf-8") as f:
-        f.write(f"\t中心点:({int(cx)},{int(cy)})\n")
-        f.write(f"\t颜色:{color}\n")
-        f.write(f"\t坐标:左上:{aim_points[0]} 左下:{aim_points[1]} 右下:{aim_points[2]} 右上:{aim_points[3]}\n")
-        f.write(f"\n")
-def putText(point,text,result):
-    cv.putText(
-    result,
-    text,
-    point,
-    cv.FONT_HERSHEY_SIMPLEX,
-    1,
-    (0, 255, 0),
-    2
-    )
-def make_text(aim_points,result):
-    putText(aim_points[0],"左上",result)
-    putText(aim_points[1],"左下",result)
-    putText(aim_points[2],"右下",result)
-    putText(aim_points[3],"右上",result)
-def solvePnP(aim_points):
-    pass
-def draw_aim(light1,light2,result,color):
+def Get_aim(light1,light2):
     points1 = sort_points(np.int32(cv.boxPoints(light1)))
     points2 = sort_points(np.int32(cv.boxPoints(light2)))
     if light1[0][0]<light2[0][0]:
-        aim_points=np.array([points1[0],points1[1],points2[3],points2[2]],np.int32)
+        aim_points=np.array([points1[0],points2[2],points2[3],points1[1]],np.int32)
     else:
-        aim_points=np.array([points2[0],points2[1],points1[3],points1[2]],np.int32)
-    # print(len(aim_points))
-    print_aim(aim_points,color)
-    make_text(aim_points,result)
-    cv.drawContours(result, [aim_points], 0, (0, 255, 0), 2)
-    solvePnP(aim_points)
-    pass
-def Match_light(lights,result,color):
+        aim_points=np.array([points2[0],points1[2],points1[3],points2[1]],np.int32)
+    return aim_points
+def Match_light(lights):
+    array_aim_points=[]
     for i in range(len(lights)):
         for j in range(i+1,len(lights)):
             if check_match(lights[i],lights[j]):
-                draw_aim(lights[i],lights[j],result,color)
-def Dispose_image(img,result,color="orange"):
-    mask=Get_mask(img,color)
-    Out_image(mask,"mask")
-    result_light=img.copy()
-    lights=find_light(mask,result_light)
-    Out_image(result_light,"light")
-    # cv.imshow("mask",mask)
-    # print(len(lights))
-    Match_light(lights,result,color)
-def Dispose_video(file_path="./input/video.avi"):
-    cap=cv.VideoCapture(file_path)
-    if not cap.isOpened():
-        print("error")
-        return
-    while True:
-        ret,img=cap.read()
-        if not ret:
-            break
-        result=img.copy()
-        Dispose_image(img,result)
-        cv.imshow("img",result)
-        cv.waitKey(1)
-    cap.release()
-def main():
-    img=Input_image()
-    result=img.copy()
-    Dispose_image(img,result)
-    # cv.imshow("img",result)
-    Out_image(result,"result")
-    cv.waitKey(0)
-    cv.destroyAllWindows()
-if __name__ == "__main__":
-    main()
+                array_aim_points.append(Get_aim(lights[i],lights[j]))
+    return array_aim_points
+def Dispose_image_inRange(img):
+    mask=Get_mask(img)
+    lights=find_light(mask)
+    array_aim_points= Match_light(lights)
+    return array_aim_points
+# def Dispose_yolo(img,result):
+#     global model
+#     results = model.predict(img, conf=0.5,device=0,verbose=False)
+#     boxes = results[0].boxes
+#     for box in boxes:
+#         x1, y1, x2, y2 = box.xyxy[0].tolist()
+#         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+#         cv.rectangle(result, (x1, y1), (x2, y2), (0, 255, 0), 2)
+#     pass
+# def Dispose_video(file_path="./input/video.avi"):
+#     cap=cv.VideoCapture(file_path)
+#     fourcc = cv.VideoWriter_fourcc(*"XVID")
+#     out = cv.VideoWriter(
+#     "Output_video.avi",
+#     fourcc,
+#     30,
+#     (1280, 1024)
+#     )
+#     if not cap.isOpened():
+#         print("error")
+#         return
+#     while True:
+#         ret,img=cap.read()
+#         if not ret:
+#             break
+#         result=img.copy()
+#         Dispose_yolo(img,result)
+#         out.write(result)
+#         cv.imshow("img",result)
+#         cv.waitKey(1)
+#     out.release()
+#     cap.release()
