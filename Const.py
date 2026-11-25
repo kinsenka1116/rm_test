@@ -1,5 +1,6 @@
 import numpy as np
 image_width=1280
+R=0.275
 image_height=1024
 w = 0.135
 h = 0.056
