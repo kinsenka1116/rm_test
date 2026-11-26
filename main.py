@@ -15,21 +15,28 @@ segment_id=0
 None_aim_frame=0
 fps=0
 model=None
+primary_plate_id=None
 def frame_process(frame_id,time_s,frame):
     #先判断PnP状态，然后决定是否开始拟合
     #1.判断PnP状态
-    global data,initializing,last_center,segment_id,pointer,None_aim_frame,fps,model,data_time,out
+    global data,initializing,last_center,segment_id,pointer,None_aim_frame,fps,model,data_time,out,primary_plate_id
     img=frame.copy()
     result_PnP=PnP.image_process(img)
-    #return aim_points,center,tvec[:,0],reprojection_error
+    #return aim_points,center,tvec[:,0],rvec[:,0],reprojection_error
     if isinstance(result_PnP,tuple):
         #PnP成功
         #然后判断和上一个有记录的帧是不是同一个装甲板
         #判断规则: 两者中心点的物理距离大于2块装甲板的宽度
         None_aim_frame=0
-        coordinate=result_PnP[2]
+        coordinate=result_PnP[2][:,0]
+        revc=result_PnP[3]
+        tecv=result_PnP[2]
         if last_center is not None:
             #等价于initializing=1
+            #如果有物理模型就预测位置和板号：primary_plate_id,theta_rad,omega_rad_s
+            if model:
+                primary_plate_id=model.Get_plate_id(time_s,coordinate,revc,tecv)
+                # print(primary_plate_id)
             if tools.Same_aim(coordinate,last_center):
                 #未切换装甲板
                 data_time[pointer].append(time_s)
@@ -38,16 +45,19 @@ def frame_process(frame_id,time_s,frame):
             else:
                 #切换装甲板
                 #此时可能可以开始拟合
-                print("切换装甲板")
-                cv.drawContours(frame, [result_PnP[0]], -1, (0, 255, 0), 2)
+                # print(f"切换装甲板 {segment_id}")
+                # cv.drawContours(frame, [result_PnP[0]], -1, (0, 255, 0), 2)
                 if tools.check_fitting(data,fps):
                     #开始拟合
                     print("------------")
-                    print(len(data[0]),len(data[1]),len(data[2]))
-                    print(len(data_time[0]),len(data_time[1]),len(data_time[2]))
+                    # print(len(data[0]),len(data[1]),len(data[2]))
+                    # print(len(data_time[0]),len(data_time[1]),len(data_time[2]))
                     model=fitting.model(data,data_time)
                     model.start()
-                    print(model.omega)
+                    print(model.omega,model.mode)
+                    primary_plate_id=model.Get_plate_id(time_s,coordinate,revc,tecv)
+                    print(primary_plate_id)
+                    #frame_id,time_s,state_status,segment_id,primary_plate_id,rotation_center_x_m,rotation_center_y_m,rotation_center_z_m,axis_x,axis_y,axis_z,theta_rad,omega_rad_s
                     # exit(0)
                     pass
                 last_center=coordinate
@@ -58,6 +68,7 @@ def frame_process(frame_id,time_s,frame):
                 data[pointer].append(coordinate)
         else :
             #初始化
+            model=None
             segment_id+=1
             pointer=0
             data_time=[[],[],[]]
@@ -69,8 +80,9 @@ def frame_process(frame_id,time_s,frame):
         #PnP失败，记录reason
         #如果长时间PnP失败将重新初始化，令last_center=None
         None_aim_frame+=1
-        if None_aim_frame/fps>0.5:
+        if None_aim_frame/fps>0.5 and last_center!=None:
             #没有目标的持续时间>0.5s
+            print("重新拟合")
             model=None#重新拟合
             last_center=None
     out.write(frame)

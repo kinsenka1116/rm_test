@@ -26,7 +26,7 @@ def image_process(img):
     if ret:#PnP有效
         PnP_state=tools.check_PnP(aim_points,imagePoints,tvec[2][0])
         if PnP_state==0:
-            return aim_points,center,tvec[:,0],reprojection_error
+            return aim_points,center,tvec,rvec,reprojection_error
         else :
             return PnP_state
     else :#PnP无效

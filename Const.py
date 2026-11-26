@@ -4,6 +4,7 @@ R=0.275
 image_height=1024
 w = 0.135
 h = 0.056
+interval=0.102
 objectPoints=np.array([
     [-w / 2, -h / 2, 0],
     [ w / 2, -h / 2, 0], 

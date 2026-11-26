@@ -1,12 +1,16 @@
 import numpy as np
 import Const
+import cv2 as cv
 import numpy as np
-from math import fsum
+import tools
+import math
+from fit_circle_fixed_radius import fit_circle_fixed_radius
 class model:
     def __init__(self,data,data_time):
         self.data=data
         self.data_time=data_time
         self.states=1
+        self.mode=1
         self.omega=0
         self.theta0=0
         self.e0,self.e90=None,None
@@ -138,11 +142,75 @@ class model:
         else:
             self.states=0
     def check(self):
-        self.check_R()
+        pass
+    def Get_theta_mid(self,t):
+        theta_mid=self.omega*t+self.theta0
+        return tools.normalize_angle(theta_mid)
+    def Predict_position(self,i,t):
+        #P_i = C + h_i * a+ R * [e0 * cos(theta + delta_i) + e90 * sin(theta + delta_i)]
+        theta_mid=self.Get_theta_mid(t)
+        if i=="minus" :
+            h_i=-Const.interval
+            delta_i=self.mode*2*np.pi/3
+        elif i=="middle":
+            h_i=0
+            delta_i=0
+        elif i=="plus":
+            h_i=Const.interval
+            delta_i=self.mode*2*np.pi/3*(-1)
+        P_i = self.C + h_i * self.a+ Const.R * (self.e0 * math.cos(theta_mid + delta_i) + self.e90 * math.sin(theta_mid + delta_i))
+        return P_i
+    def chose_model(self):
+        group_order = sorted(
+            range(3),
+            key=lambda i: np.dot(self.aims[i][0] - self.C, self.a)
+        )
+
+        self.mode = 1
+        first = True
+        sum_1, N_1 = 0, 0
+        for i in group_order:
+            if i != self.mid_id:
+                for j in range(len(self.data[i])):
+                    p_k = self.data[i][j]
+                    t = self.data_time[i][j]
+                    N_1 += 1
+                    if first:
+                        P_i = self.Predict_position("minus", t)
+                    else:
+                        P_i = self.Predict_position("plus", t)
+                    sum_1 += np.dot(p_k - P_i, p_k - P_i)
+                first = False
+        RMSE_1 = math.sqrt(sum_1 / N_1)
+
+        self.mode = -1
+        first = True
+        sum_2, N_2 = 0, 0
+        for i in group_order:
+            if i != self.mid_id:
+                for j in range(len(self.data[i])):
+                    p_k = self.data[i][j]
+                    t = self.data_time[i][j]
+                    N_2 += 1
+                    if first:
+                        P_i = self.Predict_position("minus", t)
+                    else:
+                        P_i = self.Predict_position("plus", t)
+                    sum_2 += np.dot(p_k - P_i, p_k - P_i)
+                first = False
+        RMSE_2 = math.sqrt(sum_2 / N_2)
+
+        if RMSE_1 < RMSE_2 and RMSE_1 <= 0.9 * RMSE_2:
+            self.mode = 1
+        elif RMSE_2 < RMSE_1 and RMSE_2 <= 0.9 * RMSE_1:
+            self.mode = -1
+        else:
+            self.states = 0
     def start(self):
         #对三个装甲板的旋转圆进行拟合
         for i in range(3):
-            self.aims.append(self.fit_circle_3d(self.data[i]))
+            self.aims.append(fit_circle_fixed_radius(self.data[i],R=Const.R))
+            # self.aims.append(self.fit_circle_3d(self.data[i]))
         #然后检查拟合效果
         self.check()
         if self.states==0:
@@ -151,13 +219,85 @@ class model:
         array_normal=np.array([self.aims[0][2],self.aims[1][2],self.aims[2][2]],dtype=np.float64)
         self.C = np.mean(array_center, axis=0)
         self.a = self.fit_parallel_direction(array_normal)
-        self.mid_id=self.find_middle_point(self.aims[0][0],self.aims[1][0],self.aims[2][0])
-        mid_id=self.mid_id
+        for component in self.a[[1, 0, 2]]:  # 按 y、x、z 的优先级确定正方向
+            if abs(component) > 1e-6:
+                if component > 0:
+                    self.a = -self.a
+                break
+
+        # 三个拟合圆心在旋转轴上的有符号坐标，由小到大对应 minus、middle、plus
+        heights = (array_center - self.C) @ self.a
+        minus_id, mid_id, plus_id = map(int, np.argsort(heights))
+        self.mid_id = mid_id
+        self.plate_by_group = {minus_id: "minus", mid_id: "middle", plus_id: "plus"}
         self.update_e0_e90()
         #phi_k = atan2((p_k - C) · e90, (p_k - C) · e0)
-        self.x_array=self.data_time[0]+self.data_time[1]+self.data_time[2]
-        for i in range(3):
-            for point in self.data[i]:
-                self.y_array.append(np.atan2(np.dot(point-self.C,self.e90),np.dot(point-self.C,self.e0)))
-        self.omega,self.theta0=self.fit_line(self.x_array,self.y_array)
-        return
+        
+        # self.x_array=self.data_time[0]+self.data_time[1]+self.data_time[2]
+        # first=1
+        # self.x_array=self.data_time[mid_id]
+        # for point in self.data[mid_id]:
+        #     theta=np.atan2(np.dot(point-self.C,self.e90),np.dot(point-self.C,self.e0))
+        #     self.y_array.append(theta)
+        # self.omega,self.theta0=self.fit_line(self.x_array,self.y_array)
+        self.x_array = self.data_time[self.mid_id]
+        points = np.asarray(self.data[self.mid_id], dtype=float)
+        u = points[:, 0] / points[:, 2]
+
+        # 将 X/Z = u 写成 A*cos(theta) + B*sin(theta) = (u*Cz - Cx)/R
+        e0, e90 = self.e0, self.e90
+        A = e0[0] - u * e0[2]
+        B = e90[0] - u * e90[2]
+        ratio = (u * self.C[2] - self.C[0]) / (Const.R * np.hypot(A, B))
+
+        # 选取深度更小的解
+        front_sign = 1 if e90[2] * e0[0] - e0[2] * e90[0] < 0 else -1
+        phase = np.arctan2(B, A) + front_sign * np.arccos(np.clip(ratio, -1, 1))
+        self.y_array = phase.tolist()
+
+        self.omega, self.theta0 = self.fit_line(self.x_array, self.y_array)
+        # print(np.unwrap(self.y_array))
+        
+        #然后判断+-2/3pi
+        #要求RMSE =sqrt(sum(||p_k - P_{i_k}(t_k)||²) / N) 先写一个函数求P_{i_k}(t_k)
+        self.chose_model()
+        #拟合完成!^_^!
+    def Get_plate_id(self,time_s,coordinate,rvec,tvec):
+        #预测板号：
+        #primary_plate_id 定义为本帧 used_for_state=1、质量检查通过且板号已知的候选中重投影误差最小者
+        #取重投影误差最小值
+        if not self.states:
+            return "unknow"
+        # aim_px=tools.projectPoints(coordinate,rvec,tvec)
+
+        mid_pos=self.Predict_position("middle",time_s)
+        plus_pos=self.Predict_position("plus",time_s)
+        minus_pos=self.Predict_position("minus",time_s)
+
+        # mid_px=tools.projectPoints(mid_pos,rvec,tvec)
+        # plus_px=tools.projectPoints(plus_pos,rvec,tvec)
+        # minus_px=tools.projectPoints(minus_pos,rvec,tvec)
+
+        # mid_reprojection_error_px=tools.Get_reprojection_error([mid_px],[aim_px])
+        # plus_reprojection_error_px=tools.Get_reprojection_error([plus_px],[aim_px])
+        # minus_reprojection_error_px=tools.Get_reprojection_error([minus_px],[aim_px])
+
+        # min_reprojection_error_px=min([mid_reprojection_error_px,plus_reprojection_error_px,minus_reprojection_error_px])
+        # if min_reprojection_error_px==mid_reprojection_error_px:
+        #     return "mid"
+        # elif min_reprojection_error_px==plus_reprojection_error_px:
+        #     return "plus"
+        # elif min_reprojection_error_px==minus_reprojection_error_px:
+        #     return "minus"
+
+        mid_dist=np.dot(mid_pos-coordinate,mid_pos-coordinate)
+        plus_dist=np.dot(plus_pos-coordinate,plus_pos-coordinate)
+        minus_dist=np.dot(minus_pos-coordinate,minus_pos-coordinate)
+        # print(mid_dist,minus_dist,plus_dist)
+        min_dist=min([mid_dist,plus_dist,minus_dist])
+        if min_dist==mid_dist:
+            return "mid"
+        elif min_dist==plus_dist:
+            return "plus"
+        elif min_dist==minus_dist:
+            return "minus"
