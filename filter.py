@@ -28,23 +28,17 @@ class RobustDistanceFilter:
             return None
 
         z = float(observed_m)
-        # if not math.isfinite(z) or z <= 0:
-        #     return None
+        if not math.isfinite(z) or z <= 0:
+            return None
 
-        if (
-            self.value is None
-            or time_s - self.last_time > self.max_gap_s
-        ):
+        if (self.value is None or time_s - self.last_time > self.max_gap_s):
             self.value = z
             self._clear_pending()
         elif abs(z - self.value) <= self.jump_threshold:
             self.value = (1 - self.alpha) * self.value + self.alpha * z
             self._clear_pending()
         else:
-            if (
-                self.pending_value is None
-                or abs(z - self.pending_value) > self.confirm_tolerance
-            ):
+            if (self.pending_value is None or abs(z - self.pending_value) > self.confirm_tolerance):
                 self.pending_value = z
                 self.pending_count = 1
             else:
@@ -77,7 +71,7 @@ def run_filter_test(output_csv="filter_test.csv", alpha=0.10):
         filtered = distance_filter.update(t, observed)
         rows.append((n, t, reference, observed, filtered))
 
-    with open(output_csv, "w", newline="", encoding="utf-8") as file:
+    with open(f"./output/{output_csv}", "w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         writer.writerow(["n", "time_s", "reference_m", "observed_m", "filtered_m"])
         writer.writerows(rows)
@@ -107,8 +101,4 @@ def run_filter_test(output_csv="filter_test.csv", alpha=0.10):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run the prescribed distance-filter test")
-    parser.add_argument("--output", default="filter_test.csv")
-    parser.add_argument("--alpha", type=float, default=0.10)
-    args = parser.parse_args()
-    run_filter_test(args.output, args.alpha)
+    run_filter_test("filter_test.csv", 0.1)

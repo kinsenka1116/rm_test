@@ -54,12 +54,14 @@ def frame_process(frame_id,time_s,frame):
                     # print(len(data_time[0]),len(data_time[1]),len(data_time[2]))
                     model=fitting.model(data,data_time)
                     model.start()
-                    print(model.omega,model.mode)
+                    if not model.states:
+                        model=None
+                        return
+                    print(model.omega)
                     primary_plate_id=model.Get_plate_id(time_s,coordinate,revc,tecv)
                     print(primary_plate_id)
                     #frame_id,time_s,state_status,segment_id,primary_plate_id,rotation_center_x_m,rotation_center_y_m,rotation_center_z_m,axis_x,axis_y,axis_z,theta_rad,omega_rad_s
                     # exit(0)
-                    pass
                 last_center=coordinate
                 pointer=(pointer+1)%3
                 data_time[pointer]=[]

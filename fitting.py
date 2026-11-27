@@ -161,8 +161,6 @@ class model:
         P_i = self.C + h_i * self.a+ Const.R * (self.e0 * math.cos(theta_mid + delta_i) + self.e90 * math.sin(theta_mid + delta_i))
         return P_i
     def chose_model(self):
-
-
         self.mode = 1
         sum_1, N_1 = 0, 0
         i=self.minus_id
@@ -238,7 +236,7 @@ class model:
         #   自己写的角速度拟合代码，atan2抖动太大,抢救多次无效,弃用...
 
 
-        # """
+        #"""
         #GPT给的修正代码
         self.x_array = self.data_time[self.mid_id]
         points = np.asarray(self.data[self.mid_id], dtype=float)
@@ -249,7 +247,7 @@ class model:
 
         front_sign = 1 if self.e90[2] < 0 else -1
         self.y_array = (front_sign * np.arccos(np.clip(cos_theta, -1, 1))).tolist()
-        # """
+        #"""
 
 
         self.omega, self.theta0 = self.fit_line(self.x_array, self.y_array)
