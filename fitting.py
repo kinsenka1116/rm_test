@@ -161,43 +161,43 @@ class model:
         P_i = self.C + h_i * self.a+ Const.R * (self.e0 * math.cos(theta_mid + delta_i) + self.e90 * math.sin(theta_mid + delta_i))
         return P_i
     def chose_model(self):
-        group_order = sorted(
-            range(3),
-            key=lambda i: np.dot(self.aims[i][0] - self.C, self.a)
-        )
+
 
         self.mode = 1
-        first = True
         sum_1, N_1 = 0, 0
-        for i in group_order:
-            if i != self.mid_id:
-                for j in range(len(self.data[i])):
-                    p_k = self.data[i][j]
-                    t = self.data_time[i][j]
-                    N_1 += 1
-                    if first:
-                        P_i = self.Predict_position("minus", t)
-                    else:
-                        P_i = self.Predict_position("plus", t)
-                    sum_1 += np.dot(p_k - P_i, p_k - P_i)
-                first = False
+        i=self.minus_id
+        for j in range(len(self.data[i])):
+            p_k = self.data[i][j]
+            t = self.data_time[i][j]
+            N_1 += 1
+            P_i = self.Predict_position("minus", t)
+            sum_1 += np.dot(p_k - P_i, p_k - P_i)
+        i=self.plus_id
+        for j in range(len(self.data[i])):
+            p_k = self.data[i][j]
+            t = self.data_time[i][j]
+            N_1 += 1
+            P_i = self.Predict_position("plus", t)
+            sum_1 += np.dot(p_k - P_i, p_k - P_i)
         RMSE_1 = math.sqrt(sum_1 / N_1)
 
+
         self.mode = -1
-        first = True
         sum_2, N_2 = 0, 0
-        for i in group_order:
-            if i != self.mid_id:
-                for j in range(len(self.data[i])):
-                    p_k = self.data[i][j]
-                    t = self.data_time[i][j]
-                    N_2 += 1
-                    if first:
-                        P_i = self.Predict_position("minus", t)
-                    else:
-                        P_i = self.Predict_position("plus", t)
-                    sum_2 += np.dot(p_k - P_i, p_k - P_i)
-                first = False
+        i=self.minus_id
+        for j in range(len(self.data[i])):
+            p_k = self.data[i][j]
+            t = self.data_time[i][j]
+            N_2 += 1
+            P_i = self.Predict_position("minus", t)
+            sum_2 += np.dot(p_k - P_i, p_k - P_i)
+        i=self.plus_id
+        for j in range(len(self.data[i])):
+            p_k = self.data[i][j]
+            t = self.data_time[i][j]
+            N_2 += 1
+            P_i = self.Predict_position("plus", t)
+            sum_2 += np.dot(p_k - P_i, p_k - P_i)
         RMSE_2 = math.sqrt(sum_2 / N_2)
 
         if RMSE_1 < RMSE_2 and RMSE_1 <= 0.9 * RMSE_2:
@@ -227,41 +227,36 @@ class model:
 
         # 三个拟合圆心在旋转轴上的有符号坐标，由小到大对应 minus、middle、plus
         heights = (array_center - self.C) @ self.a
-        minus_id, mid_id, plus_id = map(int, np.argsort(heights))
-        self.mid_id = mid_id
-        self.plate_by_group = {minus_id: "minus", mid_id: "middle", plus_id: "plus"}
+        self.minus_id, self.mid_id, self.plus_id = map(int, np.argsort(heights))
         self.update_e0_e90()
-        #phi_k = atan2((p_k - C) · e90, (p_k - C) · e0)
-        
-        # self.x_array=self.data_time[0]+self.data_time[1]+self.data_time[2]
-        # first=1
+
         # self.x_array=self.data_time[mid_id]
         # for point in self.data[mid_id]:
         #     theta=np.atan2(np.dot(point-self.C,self.e90),np.dot(point-self.C,self.e0))
         #     self.y_array.append(theta)
         # self.omega,self.theta0=self.fit_line(self.x_array,self.y_array)
+        #   自己写的角速度拟合代码，atan2抖动太大,抢救多次无效,弃用...
+
+
+        # """
+        #GPT给的修正代码
         self.x_array = self.data_time[self.mid_id]
         points = np.asarray(self.data[self.mid_id], dtype=float)
-        u = points[:, 0] / points[:, 2]
 
-        # 将 X/Z = u 写成 A*cos(theta) + B*sin(theta) = (u*Cz - Cx)/R
-        e0, e90 = self.e0, self.e90
-        A = e0[0] - u * e0[2]
-        B = e90[0] - u * e90[2]
-        ratio = (u * self.C[2] - self.C[0]) / (Const.R * np.hypot(A, B))
+        front_depth = self.C[2] - Const.R
+        front_points = points * (front_depth / points[:, 2:3])
+        cos_theta = ((front_points - self.C) @ self.e0) / Const.R
 
-        # 选取深度更小的解
-        front_sign = 1 if e90[2] * e0[0] - e0[2] * e90[0] < 0 else -1
-        phase = np.arctan2(B, A) + front_sign * np.arccos(np.clip(ratio, -1, 1))
-        self.y_array = phase.tolist()
+        front_sign = 1 if self.e90[2] < 0 else -1
+        self.y_array = (front_sign * np.arccos(np.clip(cos_theta, -1, 1))).tolist()
+        # """
+
 
         self.omega, self.theta0 = self.fit_line(self.x_array, self.y_array)
-        # print(np.unwrap(self.y_array))
         
         #然后判断+-2/3pi
         #要求RMSE =sqrt(sum(||p_k - P_{i_k}(t_k)||²) / N) 先写一个函数求P_{i_k}(t_k)
         self.chose_model()
-        #拟合完成!^_^!
     def Get_plate_id(self,time_s,coordinate,rvec,tvec):
         #预测板号：
         #primary_plate_id 定义为本帧 used_for_state=1、质量检查通过且板号已知的候选中重投影误差最小者
